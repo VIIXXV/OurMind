@@ -1,0 +1,251 @@
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_BME680.h"
+
+#define SEALEVELPRESSURE_HPA (1013.25)
+#define BT_RXD 8
+#define BT_TXD 7
+SoftwareSerial bluetooth(BT_RXD, BT_TXD);
+
+Adafruit_BME680 bme;
+
+const int GSR=A2;
+int sensorValue=0;
+
+  int i = 0;
+  //float Temp = 0;
+  //float Temp_avg = 0;
+  float Gas = 0;
+  float Gas1 = 0;
+  float Gas_avg = 0;
+  float Humid = 0;
+  float Humid1 = 0;
+  float Humid_avg= 0;
+  float Gsr =0;
+  float Gsr_avg = 0;
+  float heart = 0;
+  float heart_avg = 0;
+
+
+void setup(){
+  Serial.begin(9600);
+  bluetooth.begin(9600); 
+  Serial.println("humid,Gas,GSR,heart");
+
+    if (!bme.begin()) {
+      Serial.println("Could not find a valid BME680 sensor, check wiring!");
+      while (1);
+    }
+
+    bme.setHumidityOversampling(BME680_OS_2X);
+    bme.setPressureOversampling(BME680_OS_4X);
+    bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+    bme.setGasHeater(320, 150); // 320*C for 150 ms
+
+}
+
+void loop() {
+  static unsigned long last_time = 0;
+  static unsigned long current_time = 0;
+  int period = 5; // t imed_loop
+  int warning = 0;
+  int amplitude = 200;
+  int Gsr_peak_1m = 0;
+  int heart_max = 0;
+  float frequency = 1;
+  int signal = 0;
+  int j = 0;
+  if(i<100){
+    for(i; i<100; i++){
+      if (! bme.performReading()) {
+          Serial.println("Failed to perform reading :(");
+          return;
+        }
+
+        //Serial.print("Humidity = ");
+        Serial.print(bme.humidity);
+        //Serial.println(" %");
+        Serial.print(',');
+
+        Humid = bme.humidity;
+        Humid_avg += Humid;
+
+        //Serial.print("Gas = ");
+        Serial.print(bme.gas_resistance / 1000.0);
+        //Serial.println(" KOhms");
+        Serial.print(',');
+
+        Gas = bme.gas_resistance;
+        Gas_avg += Gas;
+
+        sensorValue=analogRead(GSR);
+        Serial.print(sensorValue);
+        Serial.print(',');
+        Gsr = sensorValue;
+        Gsr_avg += Gsr;
+
+
+      current_time = millis();
+      if (current_time - last_time >= period) {
+        signal = amplitude*pow(sin(2.0 * PI * frequency * (current_time / 1000.0)),8);
+        Serial.println(signal);
+        last_time = current_time;
+        heart = signal;
+        if(heart>100)
+        {
+          heart_avg+= 1;
+        }else if(heart_max < heart)
+        {
+            heart_max = heart;
+        }
+      }
+
+      if(i == 99)
+      {
+        //Temp_avg /= i;
+        Gas_avg = Gas_avg / i / 1000.00;
+        Humid_avg /= i;
+        Gsr_avg /= i;
+        heart_avg /= i;
+      }
+
+    }
+
+    Serial.print("Humid_avg =");
+    Serial.print(Humid_avg);
+    Serial.print("Gas_avg =");
+    Serial.print(Gas_avg);
+    Serial.print("GSR_avg =");
+    Serial.print(Gsr_avg);   
+    Serial.print("heart_avg =");
+    Serial.println(heart_avg);
+    
+  }
+  
+  else{
+    int Gas_avg_1m= 0;//gas 1분동안 받아오는 값의 평균
+    int Humid_avg_1m = 0;
+    int heart_avg_1m = 0;
+
+    for(j = 0; j<60; j++){
+        if (! bme.performReading()) {
+          Serial.println("Failed to perform reading :(");
+          return;
+        }
+
+      //Serial.print("Humidity = ");
+      sensorValue = bme.humidity;
+      Serial.print(sensorValue);
+      //Serial.println(" %");
+      Serial.print(',');
+      Humid1 = sensorValue;
+      Humid_avg_1m += Humid1;
+      sensorValue = 0;
+
+      //Serial.print("Gas = ");
+      sensorValue = bme.gas_resistance /1000.00 ;
+      Serial.print(sensorValue);
+      //Serial.println(" KOhms");
+      Serial.print(',');
+      Gas1 = sensorValue;
+      Gas_avg_1m += Gas1;
+      sensorValue = 0;
+
+
+      sensorValue=analogRead(GSR);
+      Serial.print(sensorValue);
+      Serial.print(',');
+      Gsr = sensorValue;
+      if(Gsr > Gsr_avg)
+      {
+        Gsr_peak_1m += 1; 
+      }
+
+    current_time = millis();
+    if (current_time - last_time >= period) {
+      signal = amplitude*pow(sin(2.0 * PI * frequency * (current_time / 1000.0)),8);
+      Serial.println(signal);
+      last_time = current_time;
+      heart = signal;
+      heart_avg_1m += signal;
+    }
+
+    if(j == 59)
+    {
+      //Temp_avg /= i;
+      Gas_avg_1m /= j;
+      Humid_avg_1m /= j;
+      //Gsr_avg /= i;
+      heart_avg /=i;
+    }
+    Serial.print(j);
+    Serial.print("번째 :");
+    delay(50);
+  }
+  Serial.print(" Gas_avg_1m : ");
+  Serial.print(Gas_avg_1m);
+  Serial.print(" Humid_avg_1m : ");
+  Serial.print(Humid_avg_1m);
+  Serial.print(" Heart_avg_1m : ");
+  Serial.print(heart_avg_1m);
+  Serial.print(" Gsr_peak_1m : ");
+  Serial.println(Gsr_peak_1m);
+
+  warning = 0;
+
+   if(Gas_avg_1m < Gas_avg - 5 || Gas_avg_1m > Gas_avg + 5 )
+    {
+      Serial.println("WARNING Gas");
+      bluetooth.println("WARNING Gas");
+      warning++;
+    }
+    else if(Humid_avg_1m < Humid_avg - 3 || Humid_avg_1m > Humid_avg + 3)
+    {
+      Serial.println("WARNING Humid");
+      bluetooth.println("WARNING Humid");
+      warning++;
+    }
+    else if(Gsr_peak_1m > 4.1)
+    {
+      Serial.println("WARNING Gsr");
+      bluetooth.println("WARNING Gsr");
+      warning++;
+    }
+    else if(heart > heart_max * 0.7 )
+    {
+      Serial.println("WARNING heart");
+      bluetooth.println("WARNING heart");
+      warning++;
+    }
+
+    switch(warning)
+    {
+      case 0:
+      case 1:
+        Serial.println("Warning 1");
+        bluetooth.println("Warning 1");
+        break;
+      case 2:
+        Serial.println("Warning 2");
+        bluetooth.println("Warning 2");
+        break;
+      case 3:
+        Serial.println("Warning 3");
+        bluetooth.println("Warning 3");
+        break;
+      case 4:
+        Serial.println("Warning 4");
+        bluetooth.println("Warning 4");
+        break;
+      default:
+        Serial.println("Peaceful");
+        bluetooth.println("Peaceful");
+        break;   
+    }
+
+    delay(1000);
+  }
+  
+}
